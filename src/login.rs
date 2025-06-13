@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 use reqwest::{header::{ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT}};
 use clap::{Parser};
 use serde_json::{json};
@@ -14,21 +14,20 @@ struct Args {
 }
 
 
-
-fn get_token_id(client: &reqwest::blocking::Client) -> String{
+async fn get_token_id(client: &reqwest::Client) -> Result<String, reqwest::Error>{
     let mut payload = HashMap::new();
     payload.insert("clientType", "CLIENT_TYPE_ANDROID");
     let res = client.post("https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser?key=AIzaSyDe2Fgxn_8HJ6NrtJtp69YqXwocutAoa9Q")
         .json(&payload)
         .header(CONTENT_TYPE, "application/json")
         .send()
-        .unwrap();
+        .await?;
 
-    let debil =  res.json::<serde_json::Value>().unwrap();
-    return debil["idToken"].as_str().unwrap().to_string();
+    let debil =  res.json::<serde_json::Value>().await.unwrap();
+    return Ok(debil["idToken"].as_str().unwrap().to_string());
 }
 
-fn send_verification_code(client: &reqwest::blocking::Client, id_token: &str, number: &str, country: &str){
+async fn send_verification_code(client: &reqwest::Client, id_token: &str, number: &str, country: &str){
     let payload = json!({
         "operationName": "SendVerificationCode",
         "query": "mutation SendVerificationCode($input: SendVerificationCodeInput!) { sendVerificationCode(input: $input) { retryAfterSeconds } }",
@@ -55,15 +54,15 @@ fn send_verification_code(client: &reqwest::blocking::Client, id_token: &str, nu
         );
         headers
     };
-    let res = client.post("https://super-account.spapp.zabka.pl/")
+    let _res = client.post("https://super-account.spapp.zabka.pl/")
         .json(&payload)
         .headers(headers)
         .send()
-        .unwrap();
-    println!("{}", res.json::<serde_json::Value>().unwrap()); 
+        .await;
+    // println!("{}", res.json::<serde_json::Value>().unwrap()); 
 }
 
-fn phone_auth(client: &reqwest::blocking::Client, id_token: &str, number: &str, country: &str, verification_code: &str) -> String{
+async fn phone_auth(client: &reqwest::Client, id_token: &str, number: &str, country: &str, verification_code: &str) -> Result<String, reqwest::Error>{
     let headers = {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
@@ -117,13 +116,13 @@ fn phone_auth(client: &reqwest::blocking::Client, id_token: &str, number: &str, 
         .json(&payload)
         .headers(headers)
         .send()
-        .unwrap();
+        .await?;
 
-    let debil =  res.json::<serde_json::Value>().unwrap();
-    return debil["data"]["signIn"]["customToken"].as_str().unwrap().to_string();
+    let debil =  res.json::<serde_json::Value>().await.unwrap();
+    return Ok(debil["data"]["signIn"]["customToken"].as_str().unwrap().to_string());
 }
 
-fn verify_custom_token(client: &reqwest::blocking::Client, custom_token: &str) -> String{
+async fn verify_custom_token(client: &reqwest::Client, custom_token: &str) -> Result<String, reqwest::Error>{
 
     let payload = json!({
         "token": custom_token,
@@ -134,14 +133,14 @@ fn verify_custom_token(client: &reqwest::blocking::Client, custom_token: &str) -
         .json(&payload)
         .header(CONTENT_TYPE, "application/json")
         .send()
-        .unwrap();
+        .await?;
 
-    let debil =  res.json::<serde_json::Value>().unwrap();
+    let debil =  res.json::<serde_json::Value>().await.unwrap();
     
-    return debil["idToken"].as_str().unwrap().to_string();
+    return Ok(debil["idToken"].as_str().unwrap().to_string());
 }
 
-fn get_user_secrets(client: &reqwest::blocking::Client, custom_token: &str) -> serde_json::Value {
+async fn get_user_secrets(client: &reqwest::Client, custom_token: &str) -> Result<serde_json::Value, reqwest::Error> {
     let payload = json!({
             "operationName": "QrCode",
             "query": "
@@ -185,12 +184,12 @@ fn get_user_secrets(client: &reqwest::blocking::Client, custom_token: &str) -> s
         .json(&payload)
         .headers(headers)
         .send()
-        .unwrap();
-    return res.json::<serde_json::Value>().unwrap()["data"]["qrCode"].clone();
+        .await?;
+        return Ok(res.json::<serde_json::Value>().await.unwrap()["data"]["qrCode"].clone());
     // return (data["loyalSecret"].as_str().unwrap().to_string(), data["paySecret"].as_str().unwrap().to_string(), data["ployId"].as_str().unwrap().to_string())
 }
 
-fn get_nano_status(client: &reqwest::blocking::Client, custom_token: &str) -> bool{
+async fn get_nano_status(client: &reqwest::Client, custom_token: &str) -> Result<bool, reqwest::Error>{
 
     let payload = json!({
         "operationName": "PaymentCards",
@@ -227,30 +226,31 @@ fn get_nano_status(client: &reqwest::blocking::Client, custom_token: &str) -> bo
         .json(&payload)
         .headers(headers)
         .send()
-        .unwrap();
+        .await?;
 
-    let cards = &res.json::<serde_json::Value>().unwrap()["data"]["paymentCards"]["paymentCards"];
+    let cards = &res.json::<serde_json::Value>().await.unwrap()["data"]["paymentCards"]["paymentCards"];
 
     if cards.is_array() && cards.as_array().unwrap().is_empty(){
-        return true
+        return Ok(true)
     } else {
-        return false
+        return Ok(false)
     }
 }
 
-// fn main() {
+// #[tokio::main(flavor = "current_thread")]
+// async fn main() {
 //     let args = Args::parse();
-//     let client = reqwest::blocking::Client::new();
+//     let client = reqwest::Client::new();
 
-//     let id_token = get_token_id(&client);
-//     send_verification_code(&client, id_token.as_str(), &args.number, &args.country);
+//     let id_token = get_token_id(&client).await.unwrap();
+//     send_verification_code(&client, &id_token.as_str(), &args.number, &args.country).await;
 
 //     use std::io;
 //     let mut verification_code = String::new();
 //     io::stdin().read_line(&mut verification_code).unwrap();
-//     let custom_token = phone_auth(&client, id_token.as_str(), &args.number, &args.country, verification_code.trim_end());
-//     let identity_provider_token = verify_custom_token(&client, custom_token.as_str());
-//     println!("{}", identity_provider_token);
-//     println!("{}", get_user_secrets(&client, identity_provider_token.as_str()));
-//     println!("{}", get_nano_status(&client, identity_provider_token.as_str()));
+//     let custom_token = phone_auth(&client, &id_token.as_str(), &args.number, &args.country, verification_code.trim_end()).await.unwrap();
+//     let identity_provider_token = verify_custom_token(&client, custom_token.as_str()).await.unwrap();
+//     // println!("{}", identity_provider_token);
+//     println!("{}", get_user_secrets(&client, identity_provider_token.as_str()).await.unwrap());
+//     println!("{}", get_nano_status(&client, identity_provider_token.as_str()).await.unwrap());
 // }
