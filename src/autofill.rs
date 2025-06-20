@@ -1,12 +1,11 @@
-use regex::Regex;
-use zbus::message::Type;
-use zbus::{Connection, MessageStream, MatchRule};
-use zbus::fdo::DBusProxy;
 use futures_util::stream::StreamExt;
+use regex::Regex;
+use zbus::fdo::DBusProxy;
+use zbus::message::Type;
+use zbus::{Connection, MatchRule, MessageStream};
 use zvariant::ObjectPath;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> zbus::Result<()> {
+pub async fn wait_for_sms_code() -> zbus::Result<String> {
     let connection = Connection::system().await?;
 
     let match_rule = MatchRule::builder()
@@ -28,8 +27,8 @@ async fn main() -> zbus::Result<()> {
         let interface = msg.header().interface().cloned();
         let member = msg.header().member().cloned();
 
-        if matches!(interface, Some(i) if i.as_str() == "org.freedesktop.ModemManager1.Modem.Messaging") &&
-           matches!(member, Some(m) if m.as_str() == "Added")
+        if matches!(interface, Some(i) if i.as_str() == "org.freedesktop.ModemManager1.Modem.Messaging")
+            && matches!(member, Some(m) if m.as_str() == "Added")
         {
             let body_data = msg.body();
             let (path, flag): (ObjectPath, bool) = body_data.deserialize()?;
@@ -38,24 +37,25 @@ async fn main() -> zbus::Result<()> {
             match fetch_text_from_path(&connection, &path).await {
                 Ok(text) => {
                     println!("Message Text: {text}");
-                    let code = get_sms_code(&text).await;
+                    let code = get_sms_code(&text);
 
                     if let Some(code) = code {
-                        println!("sms code: {code}");
+                        // println!("sms code: {code}");
+                        return Ok(code);
                     }
                     // if !code.is_none(){
                     //     println!("sms code: {}", code.unwrap());
                     // }
-                },
+                }
                 Err(e) => eprintln!("Failed to get text from {path}: {e}"),
             }
         }
     }
 
-    Ok(())
+    panic!("dbus stream closed")
 }
 
-async fn fetch_text_from_path(conn: &Connection, path: &ObjectPath<'_>) -> zbus::Result<String>  {
+async fn fetch_text_from_path(conn: &Connection, path: &ObjectPath<'_>) -> zbus::Result<String> {
     let proxy = zbus::Proxy::new(
         conn,
         "org.freedesktop.ModemManager1",
@@ -69,14 +69,14 @@ async fn fetch_text_from_path(conn: &Connection, path: &ObjectPath<'_>) -> zbus:
     Ok(text)
 }
 
-async fn get_sms_code(sms_text: &str) -> Option<String>{
-    if sms_text.contains("dQsUibGhU1V"){
+fn get_sms_code(sms_text: &str) -> Option<String> {
+    if sms_text.contains("dQsUibGhU1V") {
         let re = Regex::new(r"\b\d{6}\b").unwrap();
 
-        match re.find(&sms_text) {
+        match re.find(sms_text) {
             Some(code) => return Some(code.as_str().to_string()),
             None => None,
-        } 
+        }
     } else {
         None
     }
